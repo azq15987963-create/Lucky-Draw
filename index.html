@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>活動抽獎系統 </title>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <style>
+        :root {
+            --primary: #4361ee;
+            --secondary: #7209b7;
+            --success: #4cc9f0;
+            --danger: #f72585;
+            --dark: #2b2d42;
+            --light: #f8f9fa;
+        }
+
+        body { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; background: var(--light); margin: 0; color: #333; }
+        .header { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; text-align: center; padding: 1.5rem; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        
+        .main-container { max-width: 1200px; margin: 20px auto; display: grid; grid-template-columns: 1fr 1.5fr; gap: 20px; padding: 0 20px; }
+        
+        .card { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 8px 20px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        h3 { margin-top: 0; display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #f0f0f0; padding-bottom: 10px; font-size: 1.2rem; }
+        
+        .prize-item { display: flex; gap: 8px; margin-bottom: 10px; }
+        input, textarea, select { border: 1px solid #ddd; border-radius: 6px; padding: 10px; font-size: 14px; }
+        
+        .btn { border: none; border-radius: 6px; padding: 10px 16px; cursor: pointer; transition: 0.2s; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+        .btn-add { background: #edf2ff; color: var(--primary); }
+        .btn-draw { background: var(--primary); color: white; width: 100%; font-size: 1.1rem; padding: 15px; }
+        .btn-save { background: var(--dark); color: white; }
+        .btn-danger { background: #fff1f1; color: var(--danger); }
+        .btn-excel { background: #f0f4ff; color: #4361ee; border: 1px solid #d0d7ff; }
+
+        textarea { width: 100%; height: 250px; resize: vertical; box-sizing: border-box; font-family: monospace; line-height: 1.6; }
+        
+        .archive-list { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+        .archive-tag { background: #eee; padding: 5px 12px; border-radius: 20px; font-size: 0.85rem; cursor: pointer; }
+
+        .result-box { background: var(--dark); color: #fff; border-radius: 8px; padding: 15px; min-height: 150px; font-family: monospace; overflow-y: auto; max-height: 400px; }
+        
+        .toolbar { display: flex; gap: 10px; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>🚀 活動抽獎系統</h1>
+    <p> 資料自動儲存</p>
+</div>
+
+<div class="main-container">
+    <div class="left-col">
+        <div class="card">
+            <h3>📂 活動存檔管理</h3>
+            <div class="toolbar">
+                <input type="text" id="archiveName" placeholder="新活動名稱..." style="flex:1">
+                <button class="btn btn-save" onclick="saveCurrentToArchive()">儲存設定</button>
+            </div>
+            <div id="archiveList" class="archive-list"></div>
+        </div>
+
+        <div class="card">
+            <h3>🎁 獎項清單 <button class="btn btn-add" onclick="addPrizeRow()">+ 新增</button></h3>
+            <div id="prizeList"></div>
+        </div>
+
+        <div class="card">
+            <h3>👥 參加名單 <span id="userCount" style="font-size:0.8rem; color:#888;">0 筆資料</span></h3>
+            <div class="toolbar">
+                <button class="btn btn-excel" onclick="document.getElementById('excelFile').click()">📂 匯入 Excel (編號+姓名)</button>
+                <input type="file" id="excelFile" hidden onchange="handleExcel(this)">
+            </div>
+            <textarea id="users" placeholder="格式範例：&#10;1  吳淑芬&#10;2  楊怡君..." oninput="autoSave()"></textarea>
+            <p style="font-size: 0.75rem; color: #666; margin-top: 5px;">* 支援 Excel 前兩欄匯入，或手動輸入「編號 姓名」。</p>
+        </div>
+    </div>
+
+    <div class="right-col">
+        <div class="card">
+            <h3>⚙️ 抽獎設定</h3>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-bottom:15px;">
+                <div>
+                    <label style="display:block; margin-bottom:5px; font-weight:bold;">抽獎方式</label>
+                    <select id="drawMethod" style="width:100%;" onchange="autoSave()">
+                        <option value="all">一次抽出所有獎項</option>
+                        <option value="single">分次抽出 (一次一個)</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="display:block; margin-bottom:5px; font-weight:bold;">規則設定</label>
+                    <div style="font-size:0.9rem; line-height: 2;">
+                        <input type="checkbox" id="noRepeat" checked onchange="autoSave()"> 不得重複中獎<br>
+                        <input type="checkbox" id="keepFormat" checked onchange="autoSave()"> 保留編號進行抽獎
+                    </div>
+                </div>
+            </div>
+            <button class="btn btn-draw" onclick="startDraw()">🎰 開始進行抽獎</button>
+        </div>
+
+        <div class="card">
+            <h3>🏆 抽獎結果 
+                <div>
+                    <button class="btn btn-add" style="background:#d1fae5; color:#065f46;" onclick="exportResults()">📊 匯出結果</button>
+                    <button class="btn btn-danger" onclick="clearResults()">清空</button>
+                </div>
+            </h3>
+            <div id="result" class="result-box">尚未開始抽獎...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let storageKey = "LUCKY_DRAW_V2_DATA";
+    let archiveKey = "LUCKY_DRAW_V2_ARCHIVES";
+
+    window.onload = function() {
+        loadData();
+        renderArchives();
+    };
+
+    // --- 核心邏輯：Excel 匯入編號與姓名 ---
+    function handleExcel(input) {
+        const file = input.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const wb = XLSX.read(e.target.result, { type: 'array' });
+            const sheet = wb.Sheets[wb.SheetNames[0]];
+            // 讀取為二維陣列
+            const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            
+            const formattedNames = rawData
+                .filter(row => row.length >= 2 && row[1]) // 確保至少有兩欄且姓名不為空
+                .map(row => {
+                    const id = row[0] ? String(row[0]).trim() : "";
+                    const name = row[1] ? String(row[1]).trim() : "";
+                    return `${id}\t${name}`; // 使用 Tab 鍵隔開，視覺較整齊
+                });
+
+            document.getElementById('users').value = formattedNames.join('\n');
+            updateUserCount();
+            autoSave();
+            input.value = ""; // 清除 input 以便下次觸發
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    // --- 自動儲存與載入 ---
+    function autoSave() {
+        const data = {
+            prizes: Array.from(document.querySelectorAll('.prize-item')).map(row => {
+                const ins = row.querySelectorAll('input');
+                return { level: ins[0].value, name: ins[1].value, qty: ins[2].value };
+            }),
+            users: document.getElementById('users').value,
+            drawMethod: document.getElementById('drawMethod').value,
+            noRepeat: document.getElementById('noRepeat').checked,
+            results: document.getElementById('result').innerText
+        };
+        localStorage.setItem(storageKey, JSON.stringify(data));
+        updateUserCount();
+    }
+
+    function loadData(customData = null) {
+        const saved = customData || JSON.parse(localStorage.getItem(storageKey));
+        if (!saved) return addPrizeRow("一獎", "iPhone", 1);
+        
+        const container = document.getElementById('prizeList');
+        container.innerHTML = "";
+        saved.prizes.forEach(p => addPrizeRow(p.level, p.name, p.qty));
+        
+        document.getElementById('users').value = saved.users || "";
+        document.getElementById('drawMethod').value = saved.drawMethod || "all";
+        document.getElementById('noRepeat').checked = saved.noRepeat !== false;
+        document.getElementById('result').innerText = saved.results || "尚未開始抽獎...";
+        updateUserCount();
+    }
+
+    // --- 獎項管理 ---
+    function addPrizeRow(level="", name="", qty=1) {
+        const div = document.createElement('div');
+        div.className = 'prize-item';
+        div.innerHTML = `
+            <input type="text" placeholder="獎項" style="flex:2" value="${level}" oninput="autoSave()">
+            <input type="text" placeholder="品名" style="flex:3" value="${name}" oninput="autoSave()">
+            <input type="number" placeholder="數量" style="flex:1" value="${qty}" oninput="autoSave()">
+            <button class="btn btn-danger" onclick="this.parentElement.remove(); autoSave();">✕</button>
+        `;
+        document.getElementById('prizeList').appendChild(div);
+        autoSave();
+    }
+
+    // --- 抽獎執行 ---
+    function startDraw() {
+        const userStr = document.getElementById('users').value.trim();
+        if(!userStr) return alert("請匯入名單！");
+        
+        let users = userStr.split('\n').filter(u => u.trim() !== "");
+        const noRepeat = document.getElementById('noRepeat').checked;
+        const method = document.getElementById('drawMethod').value;
+        
+        let prizePool = [];
+        document.querySelectorAll('.prize-item').forEach(row => {
+            const ins = row.querySelectorAll('input');
+            const pLabel = `${ins[0].value}：${ins[1].value}`;
+            const qty = parseInt(ins[2].value) || 0;
+            for(let i=0; i<qty; i++) prizePool.push(pLabel);
+        });
+
+        if(prizePool.length === 0) return alert("請設定獎項！");
+
+        let results = [];
+        const resultDisplay = document.getElementById('result');
+
+        if(method === 'all') {
+            prizePool.forEach(p => {
+                if(users.length === 0) return;
+                const idx = Math.floor(Math.random() * users.length);
+                results.push(`【${p}】 ➔ ${users[idx]}`);
+                if(noRepeat) users.splice(idx, 1);
+            });
+            resultDisplay.innerText = results.join('\n');
+        } else {
+            // 分次抽獎邏輯：找出目前還沒抽完的最前面的獎項
+            // 這裡簡化處理，直接從池子隨機抽一個
+            if(users.length === 0) return alert("名單已空！");
+            const pIdx = Math.floor(Math.random() * prizePool.length); // 隨機抽一個獎
+            const uIdx = Math.floor(Math.random() * users.length); // 隨機抽一個人
+            
+            const newRes = `【${prizePool[pIdx]}】 ➔ ${users[uIdx]}`;
+            const currentRes = resultDisplay.innerText.includes("尚未") ? "" : resultDisplay.innerText;
+            resultDisplay.innerText = (currentRes ? currentRes + '\n' : "") + newRes;
+            
+            if(noRepeat) users.splice(uIdx, 1);
+        }
+        
+        if(noRepeat) document.getElementById('users').value = users.join('\n');
+        autoSave();
+    }
+
+    // --- 輔助功能 ---
+    function updateUserCount() {
+        const count = document.getElementById('users').value.split('\n').filter(u => u.trim() !== "").length;
+        document.getElementById('userCount').innerText = `${count} 筆資料`;
+    }
+
+    function saveCurrentToArchive() {
+        const name = document.getElementById('archiveName').value.trim();
+        if(!name) return alert("請輸入活動名稱");
+        const archives = JSON.parse(localStorage.getItem(archiveKey)) || {};
+        archives[name] = JSON.parse(localStorage.getItem(storageKey));
+        localStorage.setItem(archiveKey, JSON.stringify(archives));
+        renderArchives();
+        alert("活動設定已儲存");
+    }
+
+    function renderArchives() {
+        const archives = JSON.parse(localStorage.getItem(archiveKey)) || {};
+        const container = document.getElementById('archiveList');
+        container.innerHTML = "";
+        for(let name in archives) {
+            const span = document.createElement('span');
+            span.className = 'archive-tag';
+            span.innerText = `📂 ${name}`;
+            span.onclick = () => { if(confirm(`載入「${name}」？`)) loadData(archives[name]); };
+            container.appendChild(span);
+        }
+    }
+
+    function exportResults() {
+        const text = document.getElementById('result').innerText;
+        if(text.includes("尚未")) return;
+        const rows = text.split('\n').map(l => ({ "抽獎結果": l }));
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Result");
+        XLSX.writeFile(wb, "抽獎結果匯出.xlsx");
+    }
+
+    function clearResults() {
+        if(confirm("確定清空結果？")) {
+            document.getElementById('result').innerText = "尚未開始抽獎...";
+            autoSave();
+        }
+    }
+</script>
+
+</body>
+</html>
