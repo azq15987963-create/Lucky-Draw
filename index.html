@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>活動抽獎系統 </title>
+    <title>活動抽獎系統</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         :root {
@@ -35,8 +35,28 @@
 
         textarea { width: 100%; height: 250px; resize: vertical; box-sizing: border-box; font-family: monospace; line-height: 1.6; }
         
+        /* 存檔標籤優化 */
         .archive-list { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-        .archive-tag { background: #eee; padding: 5px 12px; border-radius: 20px; font-size: 0.85rem; cursor: pointer; }
+        .archive-tag { 
+            background: #eee; 
+            padding: 6px 12px; 
+            border-radius: 20px; 
+            font-size: 0.85rem; 
+            cursor: pointer; 
+            display: flex; 
+            align-items: center; 
+            gap: 8px; 
+            transition: 0.3s;
+        }
+        .archive-tag:hover { background: #e0e0e0; }
+        .del-archive { 
+            color: #999; 
+            font-weight: bold; 
+            font-size: 14px; 
+            padding: 2px 5px;
+            border-radius: 50%;
+        }
+        .del-archive:hover { color: var(--danger); background: #fdd; }
 
         .result-box { background: var(--dark); color: #fff; border-radius: 8px; padding: 15px; min-height: 150px; font-family: monospace; overflow-y: auto; max-height: 400px; }
         
@@ -47,7 +67,7 @@
 
 <div class="header">
     <h1>🚀 活動抽獎系統</h1>
-    <p> 資料自動儲存</p>
+    <p>本系統提供免費使用，嚴禁營利用途</p>
 </div>
 
 <div class="main-container">
@@ -58,7 +78,8 @@
                 <input type="text" id="archiveName" placeholder="新活動名稱..." style="flex:1">
                 <button class="btn btn-save" onclick="saveCurrentToArchive()">儲存設定</button>
             </div>
-            <div id="archiveList" class="archive-list"></div>
+            <div id="archiveList" class="archive-list">
+                </div>
         </div>
 
         <div class="card">
@@ -73,7 +94,6 @@
                 <input type="file" id="excelFile" hidden onchange="handleExcel(this)">
             </div>
             <textarea id="users" placeholder="格式範例：&#10;1  吳淑芬&#10;2  楊怡君..." oninput="autoSave()"></textarea>
-            <p style="font-size: 0.75rem; color: #666; margin-top: 5px;">* 支援 Excel 前兩欄匯入，或手動輸入「編號 姓名」。</p>
         </div>
     </div>
 
@@ -112,6 +132,7 @@
 </div>
 
 <script>
+    // 使用專屬 Key 避免衝突
     let storageKey = "LUCKY_DRAW_V2_DATA";
     let archiveKey = "LUCKY_DRAW_V2_ARCHIVES";
 
@@ -119,34 +140,6 @@
         loadData();
         renderArchives();
     };
-
-    // --- 核心邏輯：Excel 匯入編號與姓名 ---
-    function handleExcel(input) {
-        const file = input.files[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const wb = XLSX.read(e.target.result, { type: 'array' });
-            const sheet = wb.Sheets[wb.SheetNames[0]];
-            // 讀取為二維陣列
-            const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-            
-            const formattedNames = rawData
-                .filter(row => row.length >= 2 && row[1]) // 確保至少有兩欄且姓名不為空
-                .map(row => {
-                    const id = row[0] ? String(row[0]).trim() : "";
-                    const name = row[1] ? String(row[1]).trim() : "";
-                    return `${id}\t${name}`; // 使用 Tab 鍵隔開，視覺較整齊
-                });
-
-            document.getElementById('users').value = formattedNames.join('\n');
-            updateUserCount();
-            autoSave();
-            input.value = ""; // 清除 input 以便下次觸發
-        };
-        reader.readAsArrayBuffer(file);
-    }
 
     // --- 自動儲存與載入 ---
     function autoSave() {
@@ -179,7 +172,61 @@
         updateUserCount();
     }
 
-    // --- 獎項管理 ---
+    // --- 存檔管理修正：新增刪除功能 ---
+    function saveCurrentToArchive() {
+        const name = document.getElementById('archiveName').value.trim();
+        if(!name) return alert("請輸入活動名稱");
+        
+        const archives = JSON.parse(localStorage.getItem(archiveKey)) || {};
+        const currentData = JSON.parse(localStorage.getItem(storageKey));
+        
+        archives[name] = currentData;
+        localStorage.setItem(archiveKey, JSON.stringify(archives));
+        
+        document.getElementById('archiveName').value = ""; // 清空輸入框
+        renderArchives();
+        alert("活動「" + name + "」設定已儲存");
+    }
+
+    function renderArchives() {
+        const archives = JSON.parse(localStorage.getItem(archiveKey)) || {};
+        const container = document.getElementById('archiveList');
+        container.innerHTML = "";
+        
+        for(let name in archives) {
+            const div = document.createElement('div');
+            div.className = 'archive-tag';
+            // 點擊標籤載入
+            div.onclick = () => {
+                if(confirm(`載入「${name}」？這將蓋掉目前畫面上的設定`)) loadData(archives[name]);
+            };
+            
+            div.innerHTML = `
+                <span>📂 ${name}</span>
+                <span class="del-archive" title="刪除此存檔">✕</span>
+            `;
+
+            // 處理刪除叉叉點擊事件 (停止事件冒泡，避免觸發到 div 的 onclick 載入功能)
+            const delBtn = div.querySelector('.del-archive');
+            delBtn.onclick = (e) => {
+                e.stopPropagation();
+                if(confirm(`確定要刪除「${name}」的活動紀錄嗎？(此操作不可復原)`)) {
+                    deleteArchive(name);
+                }
+            };
+
+            container.appendChild(div);
+        }
+    }
+
+    function deleteArchive(name) {
+        const archives = JSON.parse(localStorage.getItem(archiveKey)) || {};
+        delete archives[name];
+        localStorage.setItem(archiveKey, JSON.stringify(archives));
+        renderArchives();
+    }
+
+    // --- 其他功能 (保持不變) ---
     function addPrizeRow(level="", name="", qty=1) {
         const div = document.createElement('div');
         div.className = 'prize-item';
@@ -193,15 +240,27 @@
         autoSave();
     }
 
-    // --- 抽獎執行 ---
+    function handleExcel(input) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const wb = XLSX.read(e.target.result, { type: 'array' });
+            const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
+            const formatted = data.filter(row => row.length >= 2 && row[1])
+                .map(row => `${String(row[0]).trim()}\t${String(row[1]).trim()}`);
+            document.getElementById('users').value = formatted.join('\n');
+            updateUserCount();
+            autoSave();
+            input.value = "";
+        };
+        reader.readAsArrayBuffer(input.files[0]);
+    }
+
     function startDraw() {
         const userStr = document.getElementById('users').value.trim();
         if(!userStr) return alert("請匯入名單！");
-        
         let users = userStr.split('\n').filter(u => u.trim() !== "");
         const noRepeat = document.getElementById('noRepeat').checked;
         const method = document.getElementById('drawMethod').value;
-        
         let prizePool = [];
         document.querySelectorAll('.prize-item').forEach(row => {
             const ins = row.querySelectorAll('input');
@@ -209,12 +268,8 @@
             const qty = parseInt(ins[2].value) || 0;
             for(let i=0; i<qty; i++) prizePool.push(pLabel);
         });
-
         if(prizePool.length === 0) return alert("請設定獎項！");
-
         let results = [];
-        const resultDisplay = document.getElementById('result');
-
         if(method === 'all') {
             prizePool.forEach(p => {
                 if(users.length === 0) return;
@@ -222,52 +277,23 @@
                 results.push(`【${p}】 ➔ ${users[idx]}`);
                 if(noRepeat) users.splice(idx, 1);
             });
-            resultDisplay.innerText = results.join('\n');
+            document.getElementById('result').innerText = results.join('\n');
         } else {
-            // 分次抽獎邏輯：找出目前還沒抽完的最前面的獎項
-            // 這裡簡化處理，直接從池子隨機抽一個
             if(users.length === 0) return alert("名單已空！");
-            const pIdx = Math.floor(Math.random() * prizePool.length); // 隨機抽一個獎
-            const uIdx = Math.floor(Math.random() * users.length); // 隨機抽一個人
-            
+            const pIdx = Math.floor(Math.random() * prizePool.length);
+            const uIdx = Math.floor(Math.random() * users.length);
             const newRes = `【${prizePool[pIdx]}】 ➔ ${users[uIdx]}`;
-            const currentRes = resultDisplay.innerText.includes("尚未") ? "" : resultDisplay.innerText;
-            resultDisplay.innerText = (currentRes ? currentRes + '\n' : "") + newRes;
-            
+            const cur = document.getElementById('result').innerText;
+            document.getElementById('result').innerText = (cur.includes("尚未") ? "" : cur + "\n") + newRes;
             if(noRepeat) users.splice(uIdx, 1);
         }
-        
         if(noRepeat) document.getElementById('users').value = users.join('\n');
         autoSave();
     }
 
-    // --- 輔助功能 ---
     function updateUserCount() {
         const count = document.getElementById('users').value.split('\n').filter(u => u.trim() !== "").length;
         document.getElementById('userCount').innerText = `${count} 筆資料`;
-    }
-
-    function saveCurrentToArchive() {
-        const name = document.getElementById('archiveName').value.trim();
-        if(!name) return alert("請輸入活動名稱");
-        const archives = JSON.parse(localStorage.getItem(archiveKey)) || {};
-        archives[name] = JSON.parse(localStorage.getItem(storageKey));
-        localStorage.setItem(archiveKey, JSON.stringify(archives));
-        renderArchives();
-        alert("活動設定已儲存");
-    }
-
-    function renderArchives() {
-        const archives = JSON.parse(localStorage.getItem(archiveKey)) || {};
-        const container = document.getElementById('archiveList');
-        container.innerHTML = "";
-        for(let name in archives) {
-            const span = document.createElement('span');
-            span.className = 'archive-tag';
-            span.innerText = `📂 ${name}`;
-            span.onclick = () => { if(confirm(`載入「${name}」？`)) loadData(archives[name]); };
-            container.appendChild(span);
-        }
     }
 
     function exportResults() {
@@ -287,6 +313,5 @@
         }
     }
 </script>
-
 </body>
 </html>
